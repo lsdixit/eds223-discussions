@@ -1,0 +1,128 @@
+---
+title: "raster-manipulations"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+Load all packages
+
+```{r}
+library(tidyverse)
+library(spData)
+library(spDataLarge)
+library(sf)
+library(stars)
+library(terra)
+```
+
+Load data
+
+```{r}
+dem <- terra::rast(system.file("raster/dem.tif", package = "spDataLarge"))
+landsat <- terra::rast(system.file("raster/landsat.tif", package = "spDataLarge"))
+srtm <- terra::rast(system.file("raster/srtm.tif", package = "spDataLarge"))
+```
+
+# Explore elevation at Mt. Mongón, Perú
+
+```{r}
+hist(dem,
+     main = "Digital Elevation Model Distribution",
+     xlab = "Value")
+
+boxplot(dem,
+        main = "Digital Elevation Model Distribution",
+        ylab = "Value")
+```
+
+Reclassify dem and compute mean
+```{r}
+rcl <- matrix(c(-Inf, 300, 0,
+                300, 500, 1,
+                500, Inf, 2),
+              ncol = 3, byrow = TRUE)
+
+dem_rcl <- terra::classify(dem, rcl = rcl)
+
+levels(dem_rcl) <- tibble(id = 0:2,
+                          cats = c("low", "medium", "high"))
+
+elevation_mean <- zonal(dem, dem_rcl, fun = "mean")
+elevation_mean
+```
+
+# Explore NDVI and NDWI at Zion National Park
+
+```{r}
+ndwi_fun <- function(green, nir) {
+  (green - nir) / (green + nir)
+}
+
+ndvi_fun <- function(nir, red) {
+  (nir - red) / (nir + red)
+}
+```
+
+```{r}
+scale_factor <- 0.0001
+offset <- 0
+
+scale_function <- function(x) {
+  x * scale_factor + offset
+}
+
+landsat_scaled <- terra::app(landsat, fun = scale_function)
+```
+
+```{r}
+ndwi_rast <- terra::lapp(landsat_scaled[[c(2, 4)]],
+                         fun = ndwi_fun)
+
+ndvi_rast <- terra::lapp(landsat_scaled[[c(4, 3)]],
+                         fun = ndvi_fun)
+```
+
+```{r}
+plot(ndwi_rast,
+     main = "Zion National Park NDWI")
+
+plot(ndvi_rast,
+     main = "Zion National Park NDVI")
+```
+
+```{r}
+combine <- c(ndvi_rast, ndwi_rast) # Stack rasters
+
+plot(combine, main = c("NDVI", "NDWI")) # Plot
+```
+
+```{r}
+# Calculate correlation between raster layers 
+terra::layerCor(combine, fun = cor)
+```
+
+```{r}
+plot(srtm)
+```
+
+```{r}
+rast_template <- terra::rast(terra::ext(srtm), res = 0.01) # Create empty template
+```
+
+```{r}
+srtm_resampl1 <- terra::resample(srtm, y = rast_template, method = "bilinear")
+srtm_resampl2 <- terra::resample(srtm, y = rast_template, method = "near")
+srtm_resampl3 <- terra::resample(srtm, y = rast_template, method = "cubic")
+srtm_resampl4 <- terra::resample(srtm, y = rast_template, method = "cubicspline")
+srtm_resampl5 <- terra::resample(srtm, y = rast_template, method = "lanczos")
+```
+
+```{r}
+srtm_resampl_all <- c(srtm_resampl1, srtm_resampl2, srtm_resampl3, srtm_resampl4, srtm_resampl5)
+labs <- c("Bilinear", "Near", "Cubic", "Cubic Spline", "Lanczos")
+
+plot(srtm_resampl_all, main = labs)
+```
+
