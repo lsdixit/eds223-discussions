@@ -1,0 +1,128 @@
+---
+title: "false_color_images"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(terra)
+library(tmap)
+library(tmaptools)
+library(RColorBrewer)
+```
+
+```{r}
+# Set directory for folder
+pre_fire_dir <- here::here("week6", "data", "LC80340322016189-SC20170128091153")
+
+# Create a list of all images that have the extension .tif and contain the word band
+pre_fire_bands <- list.files(pre_fire_dir,
+                             pattern = glob2rx("*band*.tif$"),
+                             full.names = TRUE)
+# Create a raster stack
+pre_fire_rast <- rast(pre_fire_bands)
+
+# Read mask raster
+pre_mask <- rast(here::here("week6", "data", "LC80340322016189-SC20170128091153", "LC80340322016189LGN00_cfmask_crop.tif"))
+```
+
+
+```{r}
+# Set directory for folder
+post_fire_dir <- here::here("week6", "data", "LC80340322016205-SC20170127160728")
+
+# Create a list of all images that have the extension .tif and contain the word band
+post_fire_bands <- list.files(post_fire_dir,
+                             pattern = glob2rx("*band*.tif$"),
+                             full.names = TRUE)
+# Create a raster stack
+post_fire_rast <- rast(post_fire_bands)
+
+# Read mask raster
+post_mask <- rast(here::here("week6", "data", "LC80340322016205-SC20170127160728", "LC80340322016205LGN00_cfmask_crop.tif"))
+```
+
+```{r}
+nbr_fun <- function(nir, swir2){
+    (nir - swir2)/(nir + swir2)
+}
+```
+
+Rename the bands of the rasters
+```{r}
+bands <- c("Aerosol", "Blue", "Green", "Red", "NIR", "SWIR1", "SWIR2")
+names(pre_fire_rast) <- bands
+names(post_fire_rast) <- bands
+```
+
+Mask out clouds and shadows
+```{r}
+pre_mask[pre_mask > 0] <- NA
+post_mask[post_mask > 0] <- NA
+
+pre_fire_rast <- mask(pre_fire_rast, mask = pre_mask)
+post_fire_rast <- mask(post_fire_rast, mask = post_mask)
+
+plot(pre_fire_rast)
+plot(post_fire_rast)
+```
+
+```{r}
+plotRGB(pre_fire_rast, r = 4, g = 3, b = 2, stretch = "lin", colNA = "black")
+```
+
+```{r}
+plotRGB(post_fire_rast, r = 4, g = 3, b = 2, stretch = "lin", colNA = "black")
+```
+
+```{r}
+plotRGB(pre_fire_rast, r = 7, g = 5, b = 3, stretch = "lin", colNA = "black")
+```
+
+```{r}
+plotRGB(post_fire_rast, r = 7, g = 5, b = 3, stretch = "lin", colNA = "black")
+```
+
+```{r}
+pre_nbr_rast <- terra::lapp(pre_fire_rast[[c("NIR", "SWIR2")]], fun = nbr_fun)
+
+plot(pre_nbr_rast, main = "Cold Springs Pre-Fire NBR", colNA = "black")
+```
+
+```{r}
+post_nbr_rast <- lapp(post_fire_rast[[c(5, 7)]], fun = nbr_fun)
+diff_nbr <- pre_nbr_rast - post_nbr_rast
+
+plot(diff_nbr)
+
+tm_shape(diff_nbr) +
+  tm_raster(style = "equal", n = 6, 
+            palette = "YlOrRd",
+            title = "Difference NBR (dNBR)", colorNA = "black") +
+  tm_layout(legend.outside = TRUE)
+```
+
+```{r}
+categories <- c("Enhanced Regrowth", "Unburned", "Low Severity", "Moderate Severity", "High Severity")
+
+# Create reclassification matrix
+rcl <- matrix(c(-Inf, -0.1, 1, # group 1 ranges for Enhanced Regrowth
+                -0.1, 0.1, 2, # group 2 ranges for Unburned
+                0.1, 0.27, 3, # group 3 ranges for Low Severity
+                0.27, 0.66, 4, # group 4 ranges for Moderity Severity
+                0.66, Inf, 5), # group 5 ranges for High Severity
+                ncol = 3, byrow = TRUE)
+
+reclassified <- classify(diff_nbr, rcl = rcl)
+```
+
+```{r}
+tm_shape(reclassified) +
+  tm_raster(style = "cat",
+            labels = c(categories, "Missing"),
+            palette = "YlOrRd",
+            title = "Severity Level", colorNA = "black")+
+  tm_layout(legend.outside = TRUE)
+```
+
